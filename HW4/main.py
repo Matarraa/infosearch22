@@ -1,10 +1,12 @@
 import numpy as np
 import argparse
 from transformers import AutoTokenizer, AutoModel
+from sklearn.metrics.pairwise import cosine_similarity
 import preprocessing
 import matrix_bm25
 import matrix_bert
 import torch
+import os
 
 tokenizer = AutoTokenizer.from_pretrained("sberbank-ai/sbert_large_nlu_ru")
 model = AutoModel.from_pretrained("sberbank-ai/sbert_large_nlu_ru")
@@ -27,13 +29,13 @@ def find_answers(query, corpus, answers, method):
         results = np.array(answers)[ind][::-1].squeeze()
     elif method == 'bert':
         query_vector = matrix_bert.query_bert(tokenizer, model, query)
-        BERT = corpus.dot(query_vector.T)
-        ind = np.argsort(BERT.toarray(), axis=0)
+        cos_sims = np.squeeze(cosine_similarity(query_vector, corpus))
+        ind = np.argsort(cos_sims, axis=0)
         results = np.array(answers)[ind][::-1].squeeze()
     return results
 
 def load_corpus(filename):
-    corpus_embeddings = torch.load('tensor.pt')
+    corpus_embeddings = torch.load(filename)
     return corpus_embeddings
 
 def main():
@@ -45,15 +47,17 @@ def main():
 
     print('Предобработка корпуса...')
     corpus = preprocessing.make_qa_dict(args.path)
-    print(len(corpus))
 
     if method == 'bm25':
         matrix = matrix_bm25.indexation_bm25(list(corpus.keys()))
     elif method == 'bert':
-        print('Считаю матрицу BERT...')
-        matrix = matrix_bert.indexation_bert(list(corpus.keys()), tokenizer, model)
+        if 'tensor.pt' not in os.listdir():
+            print('Индексация корпуса...')
+            matrix = matrix_bert.indexation_bert(list(corpus.keys()), tokenizer, model)
+        else:
+            matrix = load_corpus('tensor.pt')
 
-    print('Идет поиск ответов...')
+    print('Поиск ответов...')
     docs = find_answers(query, matrix, list(corpus.values()), method)
     print(*docs[:30], sep='\n\n')
 
